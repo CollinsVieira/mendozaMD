@@ -1,0 +1,64 @@
+services:
+  # Base de datos PostgreSQL para desarrollo
+  db:
+    image: postgres:15-alpine
+    container_name: estudiomd_tasks_db_dev
+    environment:
+      POSTGRES_DB: estudiomd_tasks_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - estudiomd_tasks_dev_network
+
+  # Redis para desarrollo
+  redis:
+    image: redis:7-alpine
+    container_name: estudiomd_tasks_redis_dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    networks:
+      - estudiomd_tasks_dev_network
+
+  # Backend Django en modo desarrollo
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: estudiomd_tasks_backend_dev
+    environment:
+      - DEBUG=True
+      - SECRET_KEY=dev-secret-key-not-for-production
+      - DATABASE_URL=postgresql://postgres:postgres123@db:5432/estudiomd_tasks_dev
+      - REDIS_URL=redis://redis:6379/0
+      - ALLOWED_HOSTS=localhost,127.0.0.1,backend,0.0.0.0
+      - CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173
+      - DJANGO_SETTINGS_MODULE=estudiomd_tasks.settings
+    volumes:
+      - ./backend:/app
+      - dev_media_files:/app/media
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+    networks:
+      - estudiomd_tasks_dev_network
+    # Usar el entrypoint por defecto que maneja la espera de la DB
+
+volumes:
+  postgres_dev_data:
+    driver: local
+  redis_dev_data:
+    driver: local
+  dev_media_files:
+    driver: local
+
+networks:
+  estudiomd_tasks_dev_network:
+    driver: bridge

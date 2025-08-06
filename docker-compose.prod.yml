@@ -1,0 +1,297 @@
+# ========================================
+# EstudioMD Tasks - Producción
+# ========================================
+version: '3.8'
+
+services:
+  # Base de datos PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: estudiomd_tasks_db_prod
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-estudiomd_tasks}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}  # REQUERIDO en producción
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d:ro
+    networks:
+      - estudiomd_tasks_network_prod
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-estudiomd_tasks}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    # Configuración de seguridad
+    security_opt:
+      - no-new-privileges:true
+    # Limites de recursos
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # Redis para caché y sesiones
+  redis:
+    image: redis:7-alpine
+    container_name: estudiomd_tasks_redis_prod
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis123}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
+    volumes:
+      - redis_data_prod:/data
+    networks:
+      - estudiomd_tasks_network_prod
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-redis123}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # Configuración de seguridad
+    security_opt:
+      - no-new-privileges:true
+    # Limites de recursos
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+
+  # Backend Django
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    container_name: estudiomd_tasks_backend_prod
+    environment:
+      # Django settings
+      - DEBUG=False
+      - SECRET_KEY=${SECRET_KEY}  # REQUERIDO en producción
+      - DJANGO_SETTINGS_MODULE=estudiomd_tasks.settings
+      
+      # Database
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-estudiomd_tasks}
+      
+      # Redis
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
+      
+      # Security
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,backend,frontend}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost,http://frontend}
+      - SECURE_SSL_REDIRECT=${SECURE_SSL_REDIRECT:-False}
+      - SECURE_HSTS_SECONDS=${SECURE_HSTS_SECONDS:-31536000}
+      
+      # Email (opcional)
+      - EMAIL_HOST=${EMAIL_HOST:-}
+      - EMAIL_PORT=${EMAIL_PORT:-587}
+      - EMAIL_HOST_USER=${EMAIL_HOST_USER:-}
+      - EMAIL_HOST_PASSWORD=${EMAIL_HOST_PASSWORD:-}
+      - EMAIL_USE_TLS=${EMAIL_USE_TLS:-True}
+      
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      
+    volumes:
+      - media_files_prod:/app/media
+      - static_files_prod:/app/staticfiles
+      # No montar el código fuente en producción
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - estudiomd_tasks_network_prod
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    # Configuración de seguridad
+    security_opt:
+      - no-new-privileges:true
+    # Limites de recursos
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  # Frontend React/TypeScript (Producción)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    container_name: estudiomd_tasks_frontend_prod
+    environment:
+      - VITE_API_URL=${VITE_API_URL:-http://localhost:8000/api/v1}
+      - NODE_ENV=production
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      - backend
+    networks:
+      - estudiomd_tasks_network_prod
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    # Configuración de seguridad
+    security_opt:
+      - no-new-privileges:true
+    # Limites de recursos
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+
+  # Celery Worker (para tareas asíncronas)
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    container_name: estudiomd_tasks_celery_prod
+    command: celery -A estudiomd_tasks worker -l info --concurrency=2 --max-tasks-per-child=1000
+    environment:
+      - DEBUG=False
+      - SECRET_KEY=${SECRET_KEY}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-estudiomd_tasks}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
+      - DJANGO_SETTINGS_MODULE=estudiomd_tasks.settings
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - media_files_prod:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - estudiomd_tasks_network_prod
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "celery", "-A", "estudiomd_tasks", "inspect", "ping"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 60s
+    # Configuración de seguridad
+    security_opt:
+      - no-new-privileges:true
+    # Limites de recursos
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # Celery Beat (para tareas programadas)
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    container_name: estudiomd_tasks_celery_beat_prod
+    command: celery -A estudiomd_tasks beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    environment:
+      - DEBUG=False
+      - SECRET_KEY=${SECRET_KEY}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-estudiomd_tasks}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
+      - DJANGO_SETTINGS_MODULE=estudiomd_tasks.settings
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - estudiomd_tasks_network_prod
+    restart: unless-stopped
+    # Configuración de seguridad
+    security_opt:
+      - no-new-privileges:true
+    # Limites de recursos
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+
+  # Nginx Reverse Proxy (opcional para SSL/Load Balancing)
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: estudiomd_tasks_nginx_prod
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - static_files_prod:/var/www/static:ro
+      - media_files_prod:/var/www/media:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - estudiomd_tasks_network_prod
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    # Configuración de seguridad
+    security_opt:
+      - no-new-privileges:true
+    # Limites de recursos
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
+
+volumes:
+  postgres_data_prod:
+    driver: local
+  redis_data_prod:
+    driver: local
+  media_files_prod:
+    driver: local
+  static_files_prod:
+    driver: local
+
+networks:
+  estudiomd_tasks_network_prod:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

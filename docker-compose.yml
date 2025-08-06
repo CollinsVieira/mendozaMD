@@ -1,0 +1,168 @@
+services:
+  # Base de datos PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: estudiomd_tasks_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-estudiomd_tasks}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    networks:
+      - estudiomd_tasks_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-estudiomd_tasks}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Redis para caché y sesiones
+  redis:
+    image: redis:7-alpine
+    container_name: estudiomd_tasks_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - estudiomd_tasks_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend Django
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: estudiomd_tasks_backend
+    environment:
+      - DEBUG=${DEBUG:-False}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres123}@db:5432/${POSTGRES_DB:-estudiomd_tasks}
+      - REDIS_URL=redis://redis:6379/0
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173,http://frontend:5173}
+      - DJANGO_SETTINGS_MODULE=estudiomd_tasks.settings
+    volumes:
+      - ./backend:/app
+      - media_files:/app/media
+      - static_files:/app/staticfiles
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - estudiomd_tasks_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend React
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ${FRONTEND_DOCKERFILE:-Dockerfile.dev}
+      target: ${FRONTEND_TARGET:-}
+      args:
+        - VITE_API_URL=${VITE_API_URL:-http://localhost:8000/api/v1}
+    container_name: estudiomd_tasks_frontend
+    environment:
+      - VITE_API_URL=${VITE_API_URL:-http://localhost:8000/api/v1}
+      - NODE_ENV=${NODE_ENV:-development}
+    volumes:
+      # Solo montar volúmenes en desarrollo
+      - ${FRONTEND_VOLUMES:-./frontend:/app}
+      - ${FRONTEND_NODE_MODULES:-/app/node_modules}
+    ports:
+      - "${FRONTEND_PORT:-5173}:${FRONTEND_INTERNAL_PORT:-5173}"
+    depends_on:
+      - backend
+    networks:
+      - estudiomd_tasks_network
+    restart: unless-stopped
+    stdin_open: ${FRONTEND_STDIN:-true}
+    tty: ${FRONTEND_TTY:-true}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${FRONTEND_INTERNAL_PORT:-5173}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery Worker (para tareas asíncronas)
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: estudiomd_tasks_celery
+    command: celery -A estudiomd_tasks worker -l info
+    environment:
+      - DEBUG=${DEBUG:-False}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres123}@db:5432/${POSTGRES_DB:-estudiomd_tasks}
+      - REDIS_URL=redis://redis:6379/0
+      - DJANGO_SETTINGS_MODULE=estudiomd_tasks.settings
+    volumes:
+      - ./backend:/app
+      - media_files:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - estudiomd_tasks_network
+    restart: unless-stopped
+
+  # Celery Beat (para tareas programadas)
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: estudiomd_tasks_celery_beat
+    command: celery -A estudiomd_tasks beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    environment:
+      - DEBUG=${DEBUG:-False}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres123}@db:5432/${POSTGRES_DB:-estudiomd_tasks}
+      - REDIS_URL=redis://redis:6379/0
+      - DJANGO_SETTINGS_MODULE=estudiomd_tasks.settings
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - estudiomd_tasks_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  media_files:
+    driver: local
+  static_files:
+    driver: local
+
+networks:
+  estudiomd_tasks_network:
+    driver: bridge
