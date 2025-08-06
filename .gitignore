@@ -46,6 +46,10 @@ static/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.production
+.env.staging
+.env.development
+.env.test
 
 # Celery
 celerybeat-schedule
@@ -317,6 +321,9 @@ pids
 .env.production
 .env.staging
 .env.secrets
+env.production
+env.staging
+env.secrets
 
 # SSL certificates
 *.pem
