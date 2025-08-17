@@ -12,6 +12,7 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ['id', 'email', 'username', 'first_name', 'last_name', 'name', 'role', 
                  'avatar', 'phone', 'is_active', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
+        ref_name = 'User'
     
     def get_name(self, obj):
         return f"{obj.first_name} {obj.last_name}".strip()

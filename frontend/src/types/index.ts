@@ -13,6 +13,20 @@ export interface User {
   updatedAt?: string;
 }
 
+export interface Client {
+  id: string;
+  name: string;
+  dni: string;
+  company_name: string;
+  company_ruc: string;
+  email: string;
+  phone: string;
+  address: string;
+  city: string;
+  state: string;
+  created_at: string;
+}
+
 export interface Task {
   id: string;
   title: string;

@@ -14,8 +14,8 @@ try:
         username='admin',
         email='admin@estudiomendoza.com',
         password='123456',
-        first_name='Carlos',
-        last_name='Mendoza',
+        first_name='William',
+        last_name='Mendoza Tarrillo',
         role='admin'
     )
     print(f"Superusuario creado exitosamente: {user.email}")

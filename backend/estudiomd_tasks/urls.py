@@ -36,6 +36,7 @@ urlpatterns = [
         path('users/', include('users.urls')),
         path('tasks/', include('tasks.urls')),
         path('files/', include('files.urls')),
+        path('clients/', include('clients.urls')),
     ])),
 ]
 

@@ -9,6 +9,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'email', 'first_name', 'last_name', 'role']
+        ref_name = 'TaskUser'
 
 
 class EvidenceSerializer(serializers.ModelSerializer):

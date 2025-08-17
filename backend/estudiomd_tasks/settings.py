@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'users',
     'tasks',
     'files',
+    'clients',
 ]
 
 # Agregar apps condicionales para Docker
@@ -223,18 +224,6 @@ AWS_S3_FILE_OVERWRITE = False
 AWS_DEFAULT_ACL = None
 AWS_S3_VERIFY = True
 
-# Use S3 for file storage if AWS credentials are provided
-# Temporalmente deshabilitado para usar storage local
-# if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY and AWS_STORAGE_BUCKET_NAME:
-#     DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
-#     STATICFILES_STORAGE = 'storages.backends.s3boto3.S3StaticStorage'
-#     AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com'
-#     AWS_S3_OBJECT_PARAMETERS = {
-#         'CacheControl': 'max-age=86400',
-#     }
-#     AWS_LOCATION = 'static'
-#     STATIC_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/{AWS_LOCATION}/'
-#     MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/media/'
 
 # Configuración para storage local (desarrollo)
 DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'

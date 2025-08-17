@@ -1,32 +1,31 @@
 import React from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   CheckSquare, 
   Users, 
+  Building,
   FileText, 
   Settings,
   LogOut
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
-interface SidebarProps {
-  currentView: string;
-  onViewChange: (view: string) => void;
-}
-
-const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) => {
+const Sidebar: React.FC = () => {
   const { user, logout } = useAuth();
+  const location = useLocation();
 
   const adminMenuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'tasks', label: 'Gestión de Tareas', icon: CheckSquare },
-    { id: 'users', label: 'Usuarios', icon: Users },
-    { id: 'reports', label: 'Reportes', icon: FileText },
+    { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { path: '/tasks', label: 'Tareas', icon: CheckSquare },
+    { path: '/clients', label: 'Clientes', icon: Building },
+    { path: '/reports', label: 'Reportes', icon: FileText },
+    { path: '/users', label: 'Usuarios', icon: Users },
   ];
 
   const workerMenuItems = [
-    { id: 'my-tasks', label: 'Mis Tareas', icon: CheckSquare },
-    { id: 'profile', label: 'Mi Perfil', icon: Settings },
+    { path: '/my-tasks', label: 'Mis Tareas', icon: CheckSquare },
+    { path: '/profile', label: 'Mi Perfil', icon: Settings },
   ];
 
   const menuItems = user?.role === 'admin' ? adminMenuItems : workerMenuItems;
@@ -63,19 +62,21 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) => {
         <ul className="space-y-2">
           {menuItems.map((item) => {
             const Icon = item.icon;
+            const isActive = location.pathname === item.path || 
+                           (item.path === '/clients' && location.pathname.startsWith('/clients/'));
             return (
-              <li key={item.id}>
-                <button
-                  onClick={() => onViewChange(item.id)}
+              <li key={item.path}>
+                <Link
+                  to={item.path}
                   className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition-colors duration-200 ${
-                    currentView === item.id
+                    isActive
                       ? 'bg-blue-50 text-blue-700 border-r-2 border-blue-700'
                       : 'text-gray-700 hover:bg-gray-50'
                   }`}
                 >
                   <Icon size={20} />
                   <span className="font-medium">{item.label}</span>
-                </button>
+                </Link>
               </li>
             );
           })}
