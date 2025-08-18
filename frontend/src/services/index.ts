@@ -5,6 +5,7 @@ export { default as userService } from './userService';
 export { default as fileService } from './fileService';
 export { default as clientService } from './clientService';
 export { default as financeService } from './financeService';
+export { default as operationalService } from './operationalService';
 
 // Re-export types
 export type { LoginCredentials, RegisterData, AuthResponse } from './authService';
@@ -20,4 +21,13 @@ export type {
   CreateFinanceData,
   CreatePaymentData,
   CreateCollectionData 
-} from './financeService'; 
+} from './financeService';
+export type {
+  OperationalControl,
+  MonthlyDeclaration,
+  TaxDeclaration,
+  AdditionalPDT,
+  CreateTaxDeclarationData,
+  CreateAdditionalPDTData,
+  UpdatePresentationDateData
+} from './operationalService'; 

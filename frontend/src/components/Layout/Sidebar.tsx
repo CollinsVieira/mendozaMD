@@ -25,6 +25,7 @@ const Sidebar: React.FC = () => {
 
   const workerMenuItems = [
     { path: '/my-tasks', label: 'Mis Tareas', icon: CheckSquare },
+    { path: '/clients', label: 'Clientes', icon: Building },
     { path: '/profile', label: 'Mi Perfil', icon: Settings },
   ];
 

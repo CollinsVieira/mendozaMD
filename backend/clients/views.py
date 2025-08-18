@@ -9,14 +9,17 @@ from django.utils import timezone
 from datetime import datetime
 from .models import (
     Client, ClientFinance, MonthlyPayment, 
-    PaymentTransaction, CollectionRecord
+    PaymentTransaction, OperationalControl,
+    MonthlyDeclaration, TaxDeclaration, AdditionalPDT
 )
 from .serializers import (
     ClientSerializer, ClientFinanceSerializer, MonthlyPaymentSerializer,
-    PaymentTransactionSerializer, CollectionRecordSerializer,
-    CreatePaymentTransactionSerializer
+    PaymentTransactionSerializer, CreatePaymentTransactionSerializer,
+    OperationalControlSerializer, MonthlyDeclarationSerializer,
+    TaxDeclarationSerializer, AdditionalPDTSerializer,
+    CreateTaxDeclarationSerializer, CreateAdditionalPDTSerializer
 )
-from users.permissions import PublicReadOnlyOrAuthenticated, IsAdminUser
+from users.permissions import PublicReadOnlyOrAuthenticated, IsAdminUser, IsWorkerOrAdmin
 
 
 class ClientListCreateView(generics.ListCreateAPIView):
@@ -49,7 +52,7 @@ class ClientDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class ClientFinanceView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsWorkerOrAdmin]
     
     def get(self, request, client_id):
         """Obtener información financiera del cliente para el año actual"""
@@ -114,6 +117,9 @@ class ClientFinanceView(APIView):
                 if monthly_payment.amount_paid == 0:
                     monthly_payment.amount_due = annual_fee if month == 13 else monthly_fee
                     monthly_payment.save()
+            
+            # Recalcular todos los pagos para considerar saldos pendientes
+            client_finance.recalculate_all_monthly_payments()
         
         serializer = ClientFinanceSerializer(client_finance)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -121,7 +127,7 @@ class ClientFinanceView(APIView):
 
 class MonthlyPaymentDetailView(generics.RetrieveUpdateAPIView):
     serializer_class = MonthlyPaymentSerializer
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsWorkerOrAdmin]
     
     def get_queryset(self):
         return MonthlyPayment.objects.filter(
@@ -130,7 +136,7 @@ class MonthlyPaymentDetailView(generics.RetrieveUpdateAPIView):
 
 
 class PaymentTransactionView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsWorkerOrAdmin]
     
     def post(self, request, client_id, payment_id):
         """Registrar un pago parcial o completo"""
@@ -142,7 +148,7 @@ class PaymentTransactionView(APIView):
         
         serializer = CreatePaymentTransactionSerializer(
             data=request.data,
-            context={'request': request}
+            context={'request': request, 'monthly_payment': monthly_payment}
         )
         
         if serializer.is_valid():
@@ -155,48 +161,173 @@ class PaymentTransactionView(APIView):
                 monthly_payment.payment_date = transaction_obj.payment_date
                 monthly_payment.save()
                 
-                # Si hay saldo restante, agregarlo al siguiente mes
-                if monthly_payment.balance > 0 and monthly_payment.month < 13:
-                    next_month = monthly_payment.month + 1
-                    try:
-                        next_payment = MonthlyPayment.objects.get(
-                            client_finance=monthly_payment.client_finance,
-                            month=next_month
-                        )
-                        next_payment.amount_due += monthly_payment.balance
-                        next_payment.save()
-                    except MonthlyPayment.DoesNotExist:
-                        pass
+                # Recalcular todos los pagos mensuales para actualizar saldos pendientes
+                monthly_payment.client_finance.recalculate_all_monthly_payments()
             
             return Response(PaymentTransactionSerializer(transaction_obj).data, status=status.HTTP_201_CREATED)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class CollectionRecordView(generics.ListCreateAPIView):
-    serializer_class = CollectionRecordSerializer
-    permission_classes = [IsAdminUser]
+class OperationalControlView(APIView):
+    permission_classes = [IsWorkerOrAdmin]
+    
+    def get(self, request, client_id):
+        """Obtener control operativo del cliente para el año actual"""
+        client = get_object_or_404(Client, id=client_id)
+        current_year = timezone.now().year
+        year = request.query_params.get('year', current_year)
+        
+        try:
+            operational_control = OperationalControl.objects.get(client=client, year=year)
+        except OperationalControl.DoesNotExist:
+            # Si no existe, crear control operativo por defecto
+            operational_control = OperationalControl.objects.create(
+                client=client,
+                year=year
+            )
+            # Crear las 13 declaraciones mensuales (12 meses + DJ Anual)
+            for month in range(1, 14):
+                MonthlyDeclaration.objects.create(
+                    operational_control=operational_control,
+                    month=month
+                )
+        
+        serializer = OperationalControlSerializer(operational_control, context={'request': request})
+        return Response(serializer.data)
+    
+    def post(self, request, client_id):
+        """Actualizar fecha de presentación de una declaración mensual"""
+        client = get_object_or_404(Client, id=client_id)
+        year = request.data.get('year', timezone.now().year)
+        month = request.data.get('month')
+        presentation_date = request.data.get('presentation_date')
+        
+        if not month:
+            return Response({'error': 'El mes es requerido'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        operational_control, _ = OperationalControl.objects.get_or_create(
+            client=client,
+            year=year
+        )
+        
+        monthly_declaration, _ = MonthlyDeclaration.objects.get_or_create(
+            operational_control=operational_control,
+            month=month
+        )
+        
+        if presentation_date:
+            monthly_declaration.presentation_date = presentation_date
+            monthly_declaration.save()
+        
+        serializer = MonthlyDeclarationSerializer(monthly_declaration)
+        return Response(serializer.data)
+
+
+class TaxDeclarationView(APIView):
+    permission_classes = [IsWorkerOrAdmin]
+    
+    def post(self, request, client_id, declaration_id):
+        """Crear una nueva declaración tributaria PDT"""
+        monthly_declaration = get_object_or_404(
+            MonthlyDeclaration,
+            id=declaration_id,
+            operational_control__client_id=client_id
+        )
+        
+        serializer = CreateTaxDeclarationSerializer(
+            data=request.data,
+            context={'request': request}
+        )
+        
+        if serializer.is_valid():
+            tax_declaration = serializer.save(monthly_declaration=monthly_declaration)
+            return Response(TaxDeclarationSerializer(tax_declaration, context={'request': request}).data, status=status.HTTP_201_CREATED)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def put(self, request, client_id, declaration_id, tax_id):
+        """Actualizar una declaración tributaria PDT"""
+        tax_declaration = get_object_or_404(
+            TaxDeclaration,
+            id=tax_id,
+            monthly_declaration_id=declaration_id,
+            monthly_declaration__operational_control__client_id=client_id
+        )
+        
+        serializer = TaxDeclarationSerializer(
+            tax_declaration,
+            data=request.data,
+            partial=True,
+            context={'request': request}
+        )
+        
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def delete(self, request, client_id, declaration_id, tax_id):
+        """Eliminar una declaración tributaria PDT"""
+        tax_declaration = get_object_or_404(
+            TaxDeclaration,
+            id=tax_id,
+            monthly_declaration_id=declaration_id,
+            monthly_declaration__operational_control__client_id=client_id
+        )
+        
+        tax_declaration.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AdditionalPDTView(APIView):
+    permission_classes = [IsWorkerOrAdmin]
+    
+    def get(self, request, client_id):
+        """Obtener PDTs adicionales del cliente"""
+        year = request.query_params.get('year', timezone.now().year)
+        try:
+            operational_control = OperationalControl.objects.get(client_id=client_id, year=year)
+            additional_pdts = operational_control.additional_pdts.all()
+            serializer = AdditionalPDTSerializer(additional_pdts, many=True, context={'request': request})
+            return Response(serializer.data)
+        except OperationalControl.DoesNotExist:
+            return Response([])
+    
+    def post(self, request, client_id):
+        """Crear un PDT adicional"""
+        client = get_object_or_404(Client, id=client_id)
+        year = request.data.get('year', timezone.now().year)
+        
+        operational_control, _ = OperationalControl.objects.get_or_create(
+            client=client,
+            year=year
+        )
+        
+        serializer = CreateAdditionalPDTSerializer(
+            data=request.data,
+            context={'request': request}
+        )
+        
+        if serializer.is_valid():
+            additional_pdt = serializer.save(operational_control=operational_control)
+            return Response(AdditionalPDTSerializer(additional_pdt, context={'request': request}).data, status=status.HTTP_201_CREATED)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AdditionalPDTDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = AdditionalPDTSerializer
+    permission_classes = [IsWorkerOrAdmin]
     
     def get_queryset(self):
         client_id = self.kwargs['client_id']
-        return CollectionRecord.objects.filter(client_id=client_id)
-    
-    def perform_create(self, serializer):
-        client = get_object_or_404(Client, id=self.kwargs['client_id'])
-        serializer.save(client=client, created_by=self.request.user)
-
-
-class CollectionRecordDetailView(generics.RetrieveUpdateDestroyAPIView):
-    serializer_class = CollectionRecordSerializer
-    permission_classes = [IsAdminUser]
-    
-    def get_queryset(self):
-        client_id = self.kwargs['client_id']
-        return CollectionRecord.objects.filter(client_id=client_id)
+        return AdditionalPDT.objects.filter(operational_control__client_id=client_id)
 
 
 @api_view(['GET'])
-@permission_classes([IsAdminUser])
+@permission_classes([IsWorkerOrAdmin])
 def client_finance_summary(request, client_id):
     """Resumen financiero del cliente"""
     client = get_object_or_404(Client, id=client_id)
@@ -223,4 +354,26 @@ def client_finance_summary(request, client_id):
     except ClientFinance.DoesNotExist:
         return Response({'error': 'No se encontró información financiera para este cliente'}, 
                        status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([IsWorkerOrAdmin])
+def client_available_years(request, client_id):
+    """Obtener años disponibles para un cliente"""
+    client = get_object_or_404(Client, id=client_id)
+    
+    # Obtener años de finanzas
+    finance_years = ClientFinance.objects.filter(client=client).values_list('year', flat=True).order_by('-year')
+    
+    # Obtener años de control operativo
+    operational_years = OperationalControl.objects.filter(client=client).values_list('year', flat=True).order_by('-year')
+    
+    # Combinar y ordenar años únicos
+    all_years = sorted(set(list(finance_years) + list(operational_years)), reverse=True)
+    
+    return Response({
+        'client_name': client.name,
+        'available_years': all_years,
+        'current_year': timezone.now().year
+    })
 

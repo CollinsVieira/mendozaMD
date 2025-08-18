@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { TaskProvider } from './contexts/TaskContext';
+import { FinanceProvider } from './contexts/FinanceContext';
 import LoginForm from './components/Auth/LoginForm';
 import Sidebar from './components/Layout/Sidebar';
 import AdminDashboard from './components/Dashboard/AdminDashboard';
@@ -12,7 +13,7 @@ import ReportsView from './components/Reports/ReportsView';
 import ClientList from './components/Client/ClientList';
 import ClientDetails from './components/Client/ClientDetails';
 import ClientFinance from './components/Client/ClientFinance';
-import ClientCollection from './components/Client/ClientCollection';
+import ClientOperational from './components/Client/ClientOperational';
 
 const ProfileView: React.FC = () => {
   const { user } = useAuth();
@@ -65,7 +66,7 @@ const MainApp: React.FC = () => {
                 <Route path="/clients" element={<ClientList />} />
                 <Route path="/clients/:id" element={<ClientDetails />} />
                 <Route path="/clients/:id/finance" element={<ClientFinance />} />
-                <Route path="/clients/:id/collection" element={<ClientCollection />} />
+                <Route path="/clients/:id/operational" element={<ClientOperational />} />
                 <Route path="/users" element={<UserManagement />} />
                 <Route path="/reports" element={<ReportsView />} />
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />
@@ -74,6 +75,10 @@ const MainApp: React.FC = () => {
               <>
                 <Route path="/" element={<Navigate to="/my-tasks" replace />} />
                 <Route path="/my-tasks" element={<WorkerTaskView />} />
+                <Route path="/clients" element={<ClientList />} />
+                <Route path="/clients/:id" element={<ClientDetails />} />
+                <Route path="/clients/:id/finance" element={<ClientFinance />} />
+                <Route path="/clients/:id/operational" element={<ClientOperational />} />
                 <Route path="/profile" element={<ProfileView />} />
                 <Route path="*" element={<Navigate to="/my-tasks" replace />} />
               </>
@@ -90,7 +95,9 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <TaskProvider>
-          <MainApp />
+          <FinanceProvider>
+            <MainApp />
+          </FinanceProvider>
         </TaskProvider>
       </AuthProvider>
     </BrowserRouter>

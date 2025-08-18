@@ -82,6 +82,12 @@ export interface CreateCollectionData {
   next_contact_date?: string;
 }
 
+export interface AvailableYears {
+  client_name: string;
+  available_years: number[];
+  current_year: number;
+}
+
 class FinanceService {
   // Obtener información financiera del cliente
   async getClientFinance(clientId: string, year?: number): Promise<ClientFinance> {
@@ -100,6 +106,12 @@ class FinanceService {
   async getFinanceSummary(clientId: string, year?: number): Promise<any> {
     const params = year ? { year } : {};
     const response = await api.get(`/clients/${clientId}/finance/summary/`, { params });
+    return response.data;
+  }
+
+  // Obtener años disponibles para el cliente
+  async getAvailableYears(clientId: string): Promise<AvailableYears> {
+    const response = await api.get(`/clients/${clientId}/available-years/`);
     return response.data;
   }
 

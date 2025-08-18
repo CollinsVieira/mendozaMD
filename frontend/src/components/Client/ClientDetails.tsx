@@ -96,8 +96,8 @@ const ClientDetails: React.FC = () => {
     navigate(`/clients/${id}/finance`);
   };
 
-  const handleCobranza = () => {
-    navigate(`/clients/${id}/collection`);
+  const handleOperativo = () => {
+    navigate(`/clients/${id}/operational`);
   };
 
   const formatDate = (dateString: string) => {
@@ -303,24 +303,24 @@ const ClientDetails: React.FC = () => {
       </div>
       {/* Botones de Acciones */}
       <div className="mt-6 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-      {user?.role === 'admin' && (
-          <div className="flex space-x-2">
-            <button
-              onClick={handleFinanzas}
-              className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
-            >
-              <DollarSign size={16} />
-              <span>Finanzas</span>
-            </button>
-            <button
-              onClick={handleCobranza}
-              className="bg-cyan-600 text-white px-4 py-2 rounded-lg hover:bg-cyan-700 transition-colors flex items-center space-x-2"
-            >
-              <CreditCard size={16} />
-              <span>Cobranza</span>
-            </button>
-          </div>
-        )}
+        <div className="flex space-x-2">
+          {/* Finanzas y Control Operativo disponibles para todos los usuarios autenticados */}
+          <button
+            onClick={handleFinanzas}
+            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
+          >
+            <DollarSign size={16} />
+            <span>Finanzas</span>
+          </button>
+          
+          <button
+            onClick={handleOperativo}
+            className="bg-cyan-600 text-white px-4 py-2 rounded-lg hover:bg-cyan-700 transition-colors flex items-center space-x-2"
+          >
+            <CreditCard size={16} />
+            <span>Control Operativo</span>
+          </button>
+        </div>
       </div>
 
       {/* Modal del formulario de edición */}
